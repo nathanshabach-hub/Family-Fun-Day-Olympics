@@ -7,6 +7,7 @@ type Team = {
   registration_type: 'SINGLE' | 'COMBINED';
   family_surname: string;
   combined_family_surname: string | null;
+  colour: string | null;
   participant_count: number;
   status: 'ACTIVE' | 'DELETED';
 };
@@ -92,16 +93,24 @@ type AccordionSectionProps = {
   className?: string;
 };
 
+function validHexColour(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(trimmed) ? trimmed : null;
+}
+
 function AccordionSection({ title, open, onToggle, children, className = '' }: AccordionSectionProps) {
   return (
-    <div className={`rounded-xl border border-slate-200 ${className}`.trim()}>
+    <div className={`rounded-2xl border border-slate-200 bg-white shadow-sm ${className}`.trim()}>
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center justify-between px-4 py-3 text-left"
+        className="flex w-full items-center justify-between rounded-t-2xl bg-slate-50/80 px-5 py-4 text-left"
         aria-expanded={open}
       >
-        <h3 className="text-lg font-bold text-brand-navy">{title}</h3>
+        <h3 className="text-lg font-extrabold tracking-wide text-brand-navy">{title}</h3>
         <span
           className={`text-sm font-semibold text-slate-600 transition-transform duration-700 ease-in-out ${open ? 'rotate-180' : 'rotate-0'}`}
           aria-hidden="true"
@@ -111,7 +120,7 @@ function AccordionSection({ title, open, onToggle, children, className = '' }: A
       </button>
 
       <div
-        className={`overflow-hidden px-4 transition-all duration-700 ease-in-out ${open ? 'max-h-[2200px] pb-4 opacity-100' : 'max-h-0 pb-0 opacity-0'}`}
+        className={`overflow-hidden px-5 transition-all duration-700 ease-in-out ${open ? 'max-h-[2200px] pb-5 opacity-100' : 'max-h-0 pb-0 opacity-0'}`}
       >
         {children}
       </div>
@@ -142,6 +151,7 @@ export function AdminPage() {
   const [registrationType, setRegistrationType] = useState<'SINGLE' | 'COMBINED'>('SINGLE');
   const [familySurname, setFamilySurname] = useState('');
   const [combinedFamilySurname, setCombinedFamilySurname] = useState('');
+  const [teamColour, setTeamColour] = useState('');
   const [participantCount, setParticipantCount] = useState('1');
   const [activityName, setActivityName] = useState('');
   const [activityDescription, setActivityDescription] = useState('');
@@ -325,6 +335,7 @@ export function AdminPage() {
     setRegistrationType('SINGLE');
     setFamilySurname('');
     setCombinedFamilySurname('');
+    setTeamColour('');
     setParticipantCount('1');
   };
 
@@ -344,6 +355,7 @@ export function AdminPage() {
           registrationType,
           familySurname,
           combinedFamilySurname: registrationType === 'COMBINED' ? combinedFamilySurname : '',
+          colour: teamColour,
           participantCount: Number(participantCount),
         }),
       });
@@ -378,6 +390,7 @@ export function AdminPage() {
         registrationType: team.registration_type,
         familySurname: team.family_surname,
         combinedFamilySurname: team.combined_family_surname ?? '',
+        colour: team.colour ?? '',
         participantCount: team.participant_count,
       }),
     });
@@ -723,16 +736,16 @@ export function AdminPage() {
   return (
     <section className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-2xl font-bold text-brand-navy">Admin Team Management</h2>
+        <h2 className="text-3xl font-black tracking-wide text-brand-navy">Admin Team Management</h2>
         <button
           type="button"
           onClick={logoutAdmin}
-          className="rounded-md border border-slate-300 px-3 py-1 text-sm font-semibold"
+          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold shadow-sm"
         >
           Log Out
         </button>
       </div>
-      <p className="mt-2 text-slate-700">Manage team records, including create, update, and soft delete actions.</p>
+      <p className="mt-2 text-slate-700">Manage event setup, teams, activities, and score operations from one place.</p>
 
       <AccordionSection
         className="mt-6"
@@ -742,17 +755,35 @@ export function AdminPage() {
       >
         {overviewLoading ? <p className="mt-2 text-slate-600">Loading overview...</p> : null}
         {overview ? (
-          <div className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
-            <p>Teams: {overview.teamsCount}</p>
-            <p>Activities: {overview.activitiesCount}</p>
-            <p>Scores submitted: {overview.scoreCount}</p>
-            <p>Registration: {overview.registrationStatus}</p>
-            <p>Event status: {overview.eventStatus}</p>
-            <p>Scoring lock: {overview.scoringLocked ? 'Locked' : 'Unlocked'}</p>
+          <div className="mt-3 grid gap-3 text-sm text-slate-700 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Teams</p>
+              <p className="mt-1 text-xl font-black text-brand-navy">{overview.teamsCount}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Activities</p>
+              <p className="mt-1 text-xl font-black text-brand-navy">{overview.activitiesCount}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Scores Submitted</p>
+              <p className="mt-1 text-xl font-black text-brand-navy">{overview.scoreCount}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Registration</p>
+              <p className="mt-1 text-base font-bold text-brand-navy">{overview.registrationStatus}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Event Status</p>
+              <p className="mt-1 text-base font-bold text-brand-navy">{overview.eventStatus}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Scoring Lock</p>
+              <p className="mt-1 text-base font-bold text-brand-navy">{overview.scoringLocked ? 'Locked' : 'Unlocked'}</p>
+            </div>
           </div>
         ) : null}
         {overview?.missingByActivity?.length ? (
-          <div className="mt-3">
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
             <p className="text-sm font-semibold text-slate-700">Missing scores by activity:</p>
             <ul className="mt-1 list-disc pl-5 text-sm text-slate-600">
               {overview.missingByActivity.map((m) => (
@@ -855,7 +886,7 @@ export function AdminPage() {
               </label>
 
               <button
-                className="rounded-lg bg-brand-navy px-4 py-2 font-bold text-white disabled:opacity-60"
+                className="rounded-lg bg-brand-navy px-4 py-2.5 font-bold text-white shadow-sm disabled:opacity-60"
                 type="submit"
                 disabled={settingsSaving}
               >
@@ -895,6 +926,13 @@ export function AdminPage() {
             onChange={(e) => setFamilySurname(e.target.value)}
             required
           />
+          <input
+            className="rounded-lg border border-slate-300 px-3 py-2"
+            placeholder="Colour"
+            value={teamColour}
+            onChange={(e) => setTeamColour(e.target.value)}
+            required
+          />
           {registrationType === 'COMBINED' ? (
             <input
               className="rounded-lg border border-slate-300 px-3 py-2"
@@ -913,7 +951,7 @@ export function AdminPage() {
             onChange={(e) => setParticipantCount(e.target.value)}
             required
           />
-          <button className="rounded-lg bg-brand-navy px-4 py-2 font-bold text-white" type="submit">
+          <button className="rounded-lg bg-brand-navy px-4 py-2.5 font-bold text-white shadow-sm" type="submit">
             Create Team
           </button>
         </form>
@@ -930,13 +968,19 @@ export function AdminPage() {
         {loading ? <p className="mt-2 text-slate-600">Loading teams...</p> : null}
         {!loading && teams.length === 0 ? <p className="mt-2 text-slate-600">No teams found.</p> : null}
         <ul className="mt-3 grid gap-3">
-          {teams.map((team) => (
-            <li key={team.id} className="rounded-xl border border-slate-200 p-4">
+          {teams.map((team) => {
+            const teamColour = validHexColour(team.colour);
+            return (
+            <li
+              key={team.id}
+              className="rounded-xl border border-slate-200 p-4 shadow-sm"
+              style={teamColour ? { backgroundColor: `${teamColour}22` } : undefined}
+            >
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="font-bold text-brand-navy">{team.display_name}</p>
                   <p className="text-sm text-slate-600">
-                    {team.team_code} · {team.registration_type} · {team.participant_count} participants · {team.status}
+                    {team.team_code} · {team.registration_type} · {team.colour ?? 'No colour'} · {team.participant_count} participants · {team.status}
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -958,7 +1002,8 @@ export function AdminPage() {
                 </div>
               </div>
             </li>
-          ))}
+            );
+          })}
         </ul>
       </AccordionSection>
 
@@ -990,7 +1035,7 @@ export function AdminPage() {
             onChange={(e) => setActivityOrder(e.target.value)}
             required
           />
-          <button className="rounded-lg bg-brand-navy px-4 py-2 font-bold text-white" type="submit">
+          <button className="rounded-lg bg-brand-navy px-4 py-2.5 font-bold text-white shadow-sm" type="submit">
             Create Activity
           </button>
         </form>

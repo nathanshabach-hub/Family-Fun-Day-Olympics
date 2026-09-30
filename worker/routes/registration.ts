@@ -12,6 +12,7 @@ const registrationSchema = z
     registrationType: z.enum(['SINGLE', 'COMBINED']),
     familySurname: z.string().trim().min(1, 'Please enter a valid family name.').max(60),
     combinedFamilySurname: z.string().trim().max(60).optional().or(z.literal('')),
+    colour: z.string().trim().min(1, 'Please select a team colour.').max(30),
     participantCount: z
       .number({ invalid_type_error: 'Please enter a valid participant count.' })
       .int('Please enter a valid participant count.')
@@ -90,6 +91,7 @@ async function tryInsertTeam(
     registrationType: 'SINGLE' | 'COMBINED';
     familySurname: string;
     combinedFamilySurname: string | null;
+    colour: string;
     participantCount: number;
   }
 ): Promise<boolean> {
@@ -101,11 +103,12 @@ async function tryInsertTeam(
         registration_type,
         family_surname,
         combined_family_surname,
+        colour,
         participant_count,
         status
       )
       SELECT
-        ?, ?, ?, ?, ?, ?, 'ACTIVE'
+        ?, ?, ?, ?, ?, ?, ?, 'ACTIVE'
       FROM event_settings
       WHERE id = 1
         AND registration_status = 'OPEN'
@@ -117,6 +120,7 @@ async function tryInsertTeam(
       payload.registrationType,
       payload.familySurname,
       payload.combinedFamilySurname,
+      payload.colour,
       payload.participantCount
     )
     .run();
@@ -172,6 +176,7 @@ registrationRoutes.post('/', async (c) => {
 
   const displayName = parsed.data.displayName.trim();
   const familySurname = parsed.data.familySurname.trim();
+  const colour = parsed.data.colour.trim();
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const status = await getStatus(c.env.DB);
@@ -205,6 +210,7 @@ registrationRoutes.post('/', async (c) => {
         registrationType: parsed.data.registrationType,
         familySurname,
         combinedFamilySurname,
+        colour,
         participantCount: parsed.data.participantCount,
       });
 

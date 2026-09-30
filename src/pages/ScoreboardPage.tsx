@@ -4,6 +4,7 @@ type LeaderboardRow = {
   teamId: number;
   teamCode: string;
   teamName: string;
+  teamColour: string | null;
   overallTotal: number;
   activityWins: number;
   rank: number;
@@ -22,6 +23,14 @@ function medalFor(rank: number): string {
   if (rank === 2) return '🥈';
   if (rank === 3) return '🥉';
   return '';
+}
+
+function validHexColour(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(trimmed) ? trimmed : null;
 }
 
 export function ScoreboardPage() {
@@ -103,28 +112,38 @@ export function ScoreboardPage() {
       ) : null}
 
       <div className="mt-6 grid gap-3" role="list" aria-label="Leaderboard standings">
-        {data?.leaderboard.map((row) => (
-          <article
-            key={row.teamId}
-            role="listitem"
-            className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl border border-slate-200 bg-gradient-to-r from-white to-slate-50 p-4"
-          >
-            <div className="w-16 text-center">
-              <p className="text-2xl font-black text-brand-navy">{row.rank}</p>
-              <p className="text-xl">{medalFor(row.rank)}</p>
-            </div>
-            <div>
-              <p className="text-xl font-extrabold text-brand-navy">{row.teamName}</p>
-              <p className="text-sm text-slate-600">
-                {row.teamCode} · Activity Wins: {row.activityWins} {row.tied ? '· Tied' : ''}
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-3xl font-black text-brand-green">{row.overallTotal}</p>
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">points</p>
-            </div>
-          </article>
-        ))}
+        {data?.leaderboard.map((row) => {
+          const teamColour = validHexColour(row.teamColour);
+          return (
+            <article
+              key={row.teamId}
+              role="listitem"
+              className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl border border-slate-200 p-4"
+              style={
+                teamColour
+                  ? {
+                      backgroundColor: `${teamColour}22`,
+                    }
+                  : undefined
+              }
+            >
+              <div className="w-16 text-center">
+                <p className="text-2xl font-black text-brand-navy">{row.rank}</p>
+                <p className="text-xl">{medalFor(row.rank)}</p>
+              </div>
+              <div>
+                <p className="text-xl font-extrabold text-brand-navy">{row.teamName}</p>
+                <p className="text-sm text-slate-600">
+                  {row.teamCode} · Activity Wins: {row.activityWins} {row.tied ? '· Tied' : ''}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-3xl font-black text-brand-green">{row.overallTotal}</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">points</p>
+              </div>
+            </article>
+          );
+        })}
       </div>
 
       <p className="mt-4 text-xs font-semibold text-slate-500" aria-live="polite">{message}</p>

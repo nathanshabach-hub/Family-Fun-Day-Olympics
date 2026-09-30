@@ -70,7 +70,7 @@ app.get('/api/admin/export/results.csv', requireAuth, requireRole('ADMIN'), asyn
        WHERE status != 'DELETED'
        ORDER BY id ASC`
     )
-    .all<{ id: number; team_code: string; display_name: string }>();
+    .all<{ id: number; team_code: string; display_name: string; colour: string | null }>();
 
   const activitiesRows = await c.env.DB
     .prepare(
@@ -89,7 +89,7 @@ app.get('/api/admin/export/results.csv', requireAuth, requireRole('ADMIN'), asyn
     .all<{ id: number; team_id: number; activity_id: number; judge_id: number; score: number; judge_number: number | null }>();
 
   const leaderboard = calculateLeaderboard(
-    (teamsRows.results ?? []).map((t) => ({ id: t.id, teamCode: t.team_code, displayName: t.display_name })),
+    (teamsRows.results ?? []).map((t) => ({ id: t.id, teamCode: t.team_code, displayName: t.display_name, colour: t.colour })),
     (activitiesRows.results ?? []).map((a) => ({ id: a.id, name: a.name })),
     (scoresRows.results ?? []).map((s) => ({
       teamId: s.team_id,

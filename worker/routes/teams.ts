@@ -10,6 +10,7 @@ const teamSchema = z
     registrationType: z.enum(['SINGLE', 'COMBINED']),
     familySurname: z.string().trim().min(1, 'Please enter a valid family name.').max(60),
     combinedFamilySurname: z.string().trim().max(60).optional().or(z.literal('')),
+    colour: z.string().trim().max(30).optional().or(z.literal('')),
     participantCount: z
       .number({ invalid_type_error: 'Please enter a valid participant count.' })
       .int('Please enter a valid participant count.')
@@ -33,7 +34,7 @@ teamsRoutes.get('/', requireAuth, async (c) => {
   if (user.role === 'ADMIN') {
     const rows = await c.env.DB.prepare(
       `SELECT id, team_code, display_name, registration_type, family_surname,
-              combined_family_surname, participant_count, status, created_at, updated_at
+              combined_family_surname, colour, participant_count, status, created_at, updated_at
        FROM teams
        WHERE status != 'DELETED'
        ORDER BY id ASC`
@@ -60,7 +61,7 @@ teamsRoutes.get('/:id', requireAuth, async (c) => {
   const team = await c.env.DB
     .prepare(
       `SELECT id, team_code, display_name, registration_type, family_surname,
-              combined_family_surname, participant_count, status, created_at, updated_at
+              combined_family_surname, colour, participant_count, status, created_at, updated_at
        FROM teams
        WHERE id = ?
        LIMIT 1`
@@ -92,6 +93,7 @@ teamsRoutes.post('/', requireAuth, requireRole('ADMIN'), async (c) => {
     familySurname: parsed.data.familySurname.trim(),
     combinedFamilySurname:
       parsed.data.registrationType === 'COMBINED' ? parsed.data.combinedFamilySurname?.trim() ?? null : null,
+    colour: parsed.data.colour?.trim() ? parsed.data.colour.trim() : null,
     participantCount: parsed.data.participantCount,
   };
 
@@ -100,7 +102,7 @@ teamsRoutes.post('/', requireAuth, requireRole('ADMIN'), async (c) => {
     const user = c.get('sessionUser');
 
     const inserted = await c.env.DB
-      .prepare('SELECT id, team_code, display_name, registration_type, participant_count, status FROM teams WHERE team_code = ? LIMIT 1')
+      .prepare('SELECT id, team_code, display_name, registration_type, colour, participant_count, status FROM teams WHERE team_code = ? LIMIT 1')
       .bind(created.teamCode)
       .first();
 
@@ -125,7 +127,7 @@ teamsRoutes.put('/:id', requireAuth, requireRole('ADMIN'), async (c) => {
   const existing = await c.env.DB
     .prepare(
       `SELECT id, team_code, display_name, registration_type, family_surname,
-              combined_family_surname, participant_count, status
+              combined_family_surname, colour, participant_count, status
        FROM teams
        WHERE id = ?
        LIMIT 1`
@@ -150,6 +152,7 @@ teamsRoutes.put('/:id', requireAuth, requireRole('ADMIN'), async (c) => {
   const displayName = parsed.data.displayName.trim();
   const familySurname = parsed.data.familySurname.trim();
   const combinedFamilySurname = parsed.data.registrationType === 'COMBINED' ? parsed.data.combinedFamilySurname?.trim() ?? null : null;
+  const colour = parsed.data.colour?.trim() ? parsed.data.colour.trim() : null;
 
   await c.env.DB
     .prepare(
@@ -158,17 +161,18 @@ teamsRoutes.put('/:id', requireAuth, requireRole('ADMIN'), async (c) => {
            registration_type = ?,
            family_surname = ?,
            combined_family_surname = ?,
+           colour = ?,
            participant_count = ?,
            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
        WHERE id = ?`
     )
-    .bind(displayName, parsed.data.registrationType, familySurname, combinedFamilySurname, parsed.data.participantCount, id)
+    .bind(displayName, parsed.data.registrationType, familySurname, combinedFamilySurname, colour, parsed.data.participantCount, id)
     .run();
 
   const updated = await c.env.DB
     .prepare(
       `SELECT id, team_code, display_name, registration_type, family_surname,
-              combined_family_surname, participant_count, status
+              combined_family_surname, colour, participant_count, status
        FROM teams
        WHERE id = ?
        LIMIT 1`

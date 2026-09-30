@@ -18,6 +18,10 @@ const scoreUpdateSchema = z.object({
   score: z.number(),
 });
 
+const scoreResetSchema = z.object({
+  activityId: z.number().int().positive(),
+});
+
 type EventSettings = {
   event_status: 'REGISTRATION' | 'READY' | 'LIVE' | 'FINISHED';
   minimum_score: number;
@@ -56,6 +60,19 @@ export function validateScoreValue(score: number, settings: EventSettings): stri
 
 export function canJudgeEdit(settings: EventSettings): boolean {
   return settings.event_status === 'LIVE' && settings.scoring_locked === 0 && settings.judges_can_edit === 1;
+}
+
+function judgeEditBlockedReason(settings: EventSettings): string {
+  if (settings.event_status !== 'LIVE') {
+    return `Scoring is unavailable while event status is ${settings.event_status}. Set event status to LIVE.`;
+  }
+  if (settings.scoring_locked !== 0) {
+    return 'Scoring is currently locked by admin.';
+  }
+  if (settings.judges_can_edit !== 1) {
+    return 'Judge score editing is currently disabled by admin.';
+  }
+  return 'Scoring is currently unavailable.';
 }
 
 export const scoresRoutes = new Hono<{ Bindings: Env }>();
@@ -125,7 +142,7 @@ scoresRoutes.post('/', requireAuth, requireRole('JUDGE'), async (c) => {
 
   const settings = await loadSettings(c.env.DB);
   if (!canJudgeEdit(settings)) {
-    return c.json({ message: 'Scoring is currently locked.' }, 400);
+    return c.json({ message: judgeEditBlockedReason(settings) }, 400);
   }
 
   const activity = await c.env.DB
@@ -216,6 +233,50 @@ scoresRoutes.post('/', requireAuth, requireRole('JUDGE'), async (c) => {
   return c.json({ message: 'Scores saved successfully.' });
 });
 
+scoresRoutes.post('/reset', requireAuth, requireRole('JUDGE'), async (c) => {
+  const user = c.get('sessionUser');
+  const body = await c.req.json().catch(() => null);
+  const parsed = scoreResetSchema.safeParse(body);
+
+  if (!parsed.success) {
+    return c.json({ message: 'Invalid reset payload.' }, 400);
+  }
+
+  const settings = await loadSettings(c.env.DB);
+  if (!canJudgeEdit(settings)) {
+    return c.json({ message: judgeEditBlockedReason(settings) }, 400);
+  }
+
+  const existing = await c.env.DB
+    .prepare('SELECT id, team_id, score FROM scores WHERE judge_id = ? AND activity_id = ?')
+    .bind(user.id, parsed.data.activityId)
+    .all<{ id: number; team_id: number; score: number }>();
+
+  if ((existing.results ?? []).length === 0) {
+    return c.json({ message: 'No saved scores found to reset for this activity.' });
+  }
+
+  await c.env.DB
+    .prepare('DELETE FROM scores WHERE judge_id = ? AND activity_id = ?')
+    .bind(user.id, parsed.data.activityId)
+    .run();
+
+  for (const row of existing.results ?? []) {
+    await logAudit(
+      c.env.DB,
+      user.id,
+      'SCORE_RESET',
+      'SCORE',
+      String(row.id),
+      { teamId: row.team_id, activityId: parsed.data.activityId, judgeId: user.id, score: row.score },
+      null,
+      false
+    );
+  }
+
+  return c.json({ message: 'Scores reset for this activity.' });
+});
+
 scoresRoutes.put('/:id', requireAuth, async (c) => {
   const user = c.get('sessionUser');
   const scoreId = Number(c.req.param('id'));
@@ -255,7 +316,7 @@ scoresRoutes.put('/:id', requireAuth, async (c) => {
       return c.json({ message: 'You are not authorised to perform this action.' }, 403);
     }
     if (!canJudgeEdit(settings)) {
-      return c.json({ message: 'Scoring is currently locked.' }, 400);
+      return c.json({ message: judgeEditBlockedReason(settings) }, 400);
     }
   }
 

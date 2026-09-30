@@ -30,12 +30,12 @@ leaderboardRoutes.get('/', async (c) => {
 
   const teamsRows = await c.env.DB
     .prepare(
-      `SELECT id, team_code, display_name
+      `SELECT id, team_code, display_name, colour
        FROM teams
        WHERE status != 'DELETED'
        ORDER BY id ASC`
     )
-    .all<{ id: number; team_code: string; display_name: string }>();
+    .all<{ id: number; team_code: string; display_name: string; colour: string | null }>();
 
   const activitiesRows = await c.env.DB
     .prepare(
@@ -71,7 +71,7 @@ leaderboardRoutes.get('/', async (c) => {
     | null;
 
   const result = calculateLeaderboard(
-    (teamsRows.results ?? []).map((t) => ({ id: t.id, teamCode: t.team_code, displayName: t.display_name })),
+    (teamsRows.results ?? []).map((t) => ({ id: t.id, teamCode: t.team_code, displayName: t.display_name, colour: t.colour })),
     (activitiesRows.results ?? []).map((a) => ({ id: a.id, name: a.name })),
     (scoresRows.results ?? []).map((s) => ({
       teamId: s.team_id,

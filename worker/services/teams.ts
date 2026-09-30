@@ -8,6 +8,7 @@ export type TeamInput = {
   familySurname: string;
   combinedFamilySurname: string | null;
   participantCount: number;
+  colour: string | null;
 };
 
 type EventSettings = {
@@ -43,10 +44,11 @@ async function tryInsertTeam(db: D1Database, input: TeamInput, teamCode: string)
         registration_type,
         family_surname,
         combined_family_surname,
+        colour,
         participant_count,
         status
       )
-      SELECT ?, ?, ?, ?, ?, ?, 'ACTIVE'
+      SELECT ?, ?, ?, ?, ?, ?, ?, 'ACTIVE'
       FROM event_settings
       WHERE id = 1
         AND (SELECT COUNT(*) FROM teams WHERE status != 'DELETED') < maximum_teams`
@@ -57,6 +59,7 @@ async function tryInsertTeam(db: D1Database, input: TeamInput, teamCode: string)
       input.registrationType,
       input.familySurname,
       input.combinedFamilySurname,
+      input.colour,
       input.participantCount
     )
     .run();

@@ -2,6 +2,7 @@ export type RankingTeam = {
   id: number;
   teamCode: string;
   displayName: string;
+  colour: string | null;
 };
 
 export type RankingActivity = {
@@ -20,6 +21,7 @@ export type LeaderboardRow = {
   teamId: number;
   teamCode: string;
   teamName: string;
+  teamColour: string | null;
   overallTotal: number;
   activityWins: number;
   rank: number;
@@ -94,6 +96,7 @@ export function calculateLeaderboard(
       teamId: team.id,
       teamCode: team.teamCode,
       teamName: team.displayName,
+      teamColour: team.colour,
       overallTotal,
       activityWins: activityWinsByTeam[team.id],
       rank: 0,

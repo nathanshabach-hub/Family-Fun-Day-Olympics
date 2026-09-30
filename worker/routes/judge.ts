@@ -24,7 +24,7 @@ judgeRoutes.get('/dashboard', requireAuth, requireRole('JUDGE'), async (c) => {
 
   const teamsRows = await c.env.DB
     .prepare(
-      `SELECT id, team_code, display_name, participant_count
+      `SELECT id, team_code, display_name, colour, participant_count
        FROM teams
        WHERE status != 'DELETED'
        ORDER BY id ASC`
@@ -33,6 +33,7 @@ judgeRoutes.get('/dashboard', requireAuth, requireRole('JUDGE'), async (c) => {
       id: number;
       team_code: string;
       display_name: string;
+      colour: string | null;
       participant_count: number;
     }>();
 

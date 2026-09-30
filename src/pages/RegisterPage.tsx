@@ -26,6 +26,7 @@ export function RegisterPage() {
   const [displayName, setDisplayName] = useState('');
   const [familySurname, setFamilySurname] = useState('');
   const [combinedFamilySurname, setCombinedFamilySurname] = useState('');
+  const [teamColour, setTeamColour] = useState('#1d4ed8');
   const [participantCount, setParticipantCount] = useState('1');
   const [website, setWebsite] = useState('');
   const [message, setMessage] = useState('');
@@ -88,6 +89,7 @@ export function RegisterPage() {
           registrationType,
           familySurname,
           combinedFamilySurname: registrationType === 'COMBINED' ? combinedFamilySurname : '',
+          colour: teamColour,
           participantCount: Number(participantCount),
           website,
         }),
@@ -101,6 +103,7 @@ export function RegisterPage() {
         setDisplayName('');
         setFamilySurname('');
         setCombinedFamilySurname('');
+        setTeamColour('#1d4ed8');
         setParticipantCount('1');
         setWebsite('');
 
@@ -189,6 +192,18 @@ export function RegisterPage() {
               onChange={(e) => setParticipantCount(e.target.value)}
               required
               className="rounded-lg border border-slate-300 px-3 py-2 text-base"
+            />
+          </label>
+
+          <label className="grid gap-1 text-sm font-semibold text-slate-700" htmlFor="team-colour">
+            Team Colour
+            <input
+              id="team-colour"
+              type="color"
+              value={teamColour}
+              onChange={(e) => setTeamColour(e.target.value)}
+              className="h-11 w-full rounded-lg border border-slate-300 px-2 py-1"
+              aria-label="Choose team colour"
             />
           </label>
 
