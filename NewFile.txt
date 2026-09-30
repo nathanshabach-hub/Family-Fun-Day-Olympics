@@ -1,0 +1,467 @@
+# Family Fun Day Olympics — Full-Stack Application Build Prompt (v2)
+
+## 0. Your Role
+
+You are the senior full-stack developer implementing this application. Build it incrementally, keep it runnable after every stage, and keep it simple. Where something is ambiguous, choose the simplest reasonable option and document the decision in the README. Do not invent requirements that are not needed.
+
+---
+
+## 1. Project Overview
+
+Build a complete, production-ready web application for a church **Family Fun Day Olympics**.
+
+The application manages:
+
+- Family/team registration (maximum **6** teams; single-family and combined-family)
+- Exactly **three judge accounts** plus one **admin** account
+- Activity management and per-judge scoring
+- Automatic score calculation and a live leaderboard
+- Secure authentication and server-side authorization
+- Deployment on Cloudflare
+
+It is developed locally in **VS Code on Ubuntu Studio** (Git, Node.js v20+, npm). It must be responsive and easy to use on phones and tablets (judges), laptops (admin) and a TV/projector (scoreboard).
+
+---
+
+## 2. Technology Stack (decided)
+
+| Layer | Choice |
+|---|---|
+| Frontend | React, TypeScript, Vite, Tailwind CSS, React Router. No state-management library; use hooks and `fetch`. |
+| Backend | **One Cloudflare Worker** serving both the API (`/api/*`) and the built frontend via **Workers Static Assets** (SPA fallback to `index.html`). Use Hono for routing and Zod for input validation. |
+| Database | Cloudflare **D1** (SQLite), SQL migrations in `/migrations`, parameterized queries only. |
+| Config | `wrangler.jsonc` (or `wrangler.toml` if the current tooling requires it). Use the Cloudflare Vite plugin so `npm run dev` runs frontend and Worker together with local D1. |
+| Secrets | Wrangler secrets in production; `.dev.vars` (git-ignored) locally. |
+| Tests | Vitest, using the Cloudflare Workers test pool against a local D1. |
+
+Do not add extra infrastructure (no Kubernetes, microservices, queues, external databases) or unnecessary dependencies. If you believe a change to this stack is technically necessary, explain why before making it.
+
+Required commands:
+
+```
+npm install
+npm run db:migrate      # apply migrations to local D1
+npm run db:seed         # dev-only sample data
+npm run dev
+npm test
+npm run build
+npm run deploy
+```
+
+---
+
+## 3. Core Design Principle
+
+This is **not** a frontend-only app. The backend and database are the source of truth.
+
+- The 6-team limit, judge permissions, score ranges and event locks are enforced **server-side**.
+- Authentication must never rely on hiding buttons in the UI.
+- Scores are stored individually; totals and rankings are always **calculated from stored scores**, never stored as the source of truth.
+- The user, role and judge identity always come from the authenticated session. **Never trust a user ID, judge ID or role sent by the browser.**
+
+---
+
+## 4. User Roles
+
+### Admin
+Can: log in; view/create/edit/delete teams; view participants; create/edit/delete/enable/disable activities; view all scores; correct scores; reset scores; view judge activity and the audit log; view the leaderboard and open scoreboard mode; open/close registration; lock/unlock scoring; set event status; export data.
+
+### Judge (exactly three: Judge 1, 2, 3)
+Can: log in; view the teams and active activities; enter scores; see and edit **their own** scores (while editing is permitted); see which activities are scored; see the leaderboard.
+
+Judges must **not**: create/delete teams or activities, modify another judge's score, access admin functionality, or change authentication settings.
+
+### Public (no account)
+Can: register a team while registration is open; view the public scoreboard if enabled. Cannot access admin or judge functionality.
+
+---
+
+## 5. Registration (`/register`)
+
+Collect:
+
+- **Team/family display name** (e.g. "The Vessel") — shown on the scoreboard.
+- **Registration type:** Single Family or Combined Family.
+  - Single: one *Family Surname*.
+  - Combined: *First Family Surname* and *Second Family Surname*. Auto-suggest the display name "Brown / Thomas Family". The admin can edit the final display name.
+- **Number of participants:** must be a valid positive integer within a sensible upper bound (e.g. 1–30, configurable).
+
+Show clearly: *Maximum teams: 6 · Teams registered: 4 · Spaces remaining: 2*.
+
+When six teams are registered, show **"Registration Full"** and make the form unavailable. The backend must reject a seventh registration regardless of the frontend.
+
+Spam protection: IP-based rate limiting plus a honeypot field on the public form. Cloudflare Turnstile is optional and should be easy to add later.
+
+---
+
+## 6. Team Rules
+
+- Only **6** teams may ever exist. `maximum_teams` is a setting, but it is **hard-capped at 6 in code**.
+- **Enforce the cap atomically** in a single SQL statement (for example `INSERT … SELECT … WHERE (SELECT COUNT(*) FROM teams WHERE status != 'DELETED') < :max`) so two simultaneous registrations cannot both take the last space.
+- Each team gets a backend-generated unique `team_code` (`TEAM-001` … `TEAM-006`) from a counter in `event_settings`. Codes are **never reused**.
+- The primary key is an internal ID, not the family name. Display names can change without breaking score records.
+- **Deleting a team:** soft delete (`status = 'DELETED'`), which frees the space. Deletion is **blocked** once the team has any scores unless the admin first resets that team's scores (audited).
+
+### Optional participant names
+Participant names are **off by default** (`participant_names_enabled` setting). The `participants` table exists so names can be enabled later (Participant 1, 2, 3 …). Only the count is required. Avoid collecting unnecessary personal information.
+
+---
+
+## 7. Activities
+
+The admin can create, edit, delete, enable and disable activities. The number of activities is never hard-coded.
+
+Fields: unique ID, name, description, display order, active flag, scoring configuration, created/updated timestamps.
+
+Examples: Sack Race, Egg & Spoon Race, Three-Legged Race, Tug of War, Obstacle Course, Balloon Relay, Family Relay.
+
+Deleting an activity that already has scores is blocked; the admin should disable it instead (or reset its scores first, audited).
+
+---
+
+## 8. Scoring
+
+- Each judge scores every team for every activity. Each score is stored independently.
+- Activity total for a team = sum of the three judges' scores.
+- Team overall total = sum of its activity totals.
+
+Example: Judge scores 8 + 9 + 10 = 27 for Sack Race; overall total is the sum across activities (e.g. 27 + 25 + 29 + 30 = 111).
+
+### Scoring configuration
+- Defaults: minimum **0**, maximum **10**, **whole numbers only**.
+- Min/max are admin-configurable via settings. Changing to decimals later must be a small change, not a rewrite.
+- Out-of-range scores return: *"Your score must be between 0 and 10."* (using the configured values).
+
+### Judge edit rules
+- Judges can create and edit **their own** scores while the event is `LIVE` and scoring is not locked (`judges_can_edit` setting, default on).
+- When the event is `FINISHED` or scoring is locked, judges cannot change scores; only the admin can (audited).
+
+---
+
+## 9. Judge Dashboard (`/judge`)
+
+After login: "Welcome, Judge 1 — Family Fun Day Olympics". Show the active activities. For the selected activity, list all six teams with a large numeric input each and a **Save Scores** button. Very simple, large touch targets, works well on phones and tablets outdoors.
+
+Show which activities the judge has fully scored, and the current leaderboard.
+
+### Score submission flow (backend)
+1. Validate authentication (session).
+2. Validate the user has the JUDGE role and take `judge_id` from the session.
+3. Validate the event is LIVE and scoring is unlocked.
+4. Validate each team exists and is not deleted.
+5. Validate the activity exists and is active.
+6. Validate each score against the configured range and integer rule.
+7. Create or update the judge's score using an upsert on `(team_id, activity_id, judge_id)`.
+8. Record timestamps and an audit entry (previous score, new score, who changed it).
+9. Return the updated result.
+
+Show *"Scores saved successfully."* Handle network/database errors gracefully: *"Unable to save your score. Please try again."*
+
+---
+
+## 9a. Score Audit
+
+Every score stores: score ID, team ID, activity ID, judge ID, score, created and updated timestamps, `previous_score`, and `last_updated_by`. Every change also writes an `audit_log` row (old value, new value, actor, timestamp). Admin corrections are clearly flagged as **administrative changes**.
+
+---
+
+## 10. Admin Dashboard (`/admin`)
+
+Sections:
+
+- **Overview:** teams (e.g. 6 / 6), number of activities, scoring progress %, registration status, event status, teams with complete/missing scores, activities awaiting scores, latest score submissions.
+- **Teams:** team, type, participants, status; actions view/edit/delete.
+- **Activities:** name, order, status; actions create/edit/delete/enable/disable.
+- **Scores:** score matrix (below) with the ability to correct a score.
+- **Settings:** registration status, event status, min/max score, scoreboard public toggle, judges-can-edit toggle, scoring lock.
+- **Audit log** and **Exports**.
+
+### Score matrix
+
+| Team | Activity | Judge 1 | Judge 2 | Judge 3 | Activity Total |
+|---|---|---|---|---|---|
+| Vessel | Sack Race | 8 | 9 | 10 | 27 |
+
+Missing values must be clearly indicated with a visual indicator **and** text (for example "Missing"), not colour alone. Show overall total per team.
+
+### Incomplete scoring
+Show per-activity completion, e.g. Sack Race ✓ (complete), Tug of War ⏳ (awaiting scores). An activity is complete when all non-deleted teams have all three judges' scores. The public scoreboard may show live totals during the event, but the admin UI must clearly flag incomplete scoring, and partial results must never be presented as final until the event is `FINISHED`.
+
+---
+
+## 11. Registration and Event Status
+
+**Registration status:** `OPEN` / `CLOSED`. If closed, show *"Registration is currently closed."* When six teams are registered, registration closes automatically. The admin can reopen only if the six-team limit is respected.
+
+**Event status:** `REGISTRATION` → `READY` → `LIVE` → `FINISHED`.
+
+| Status | Meaning |
+|---|---|
+| REGISTRATION | Families can register. |
+| READY | Registration closed, event ready to begin. |
+| LIVE | Judges can enter scores. |
+| FINISHED | Scoring locked, final results displayed. |
+
+The admin can also lock/unlock scoring independently.
+
+---
+
+## 12. Leaderboard and Scoreboard (`/scoreboard`)
+
+Large-screen design for a TV/projector: event title, "LEADERBOARD", positions 1st–6th with team name and points. 🥇🥈🥉 for top three, clearly distinct styling. Clean, fun, family-friendly, readable from a distance.
+
+### Live updates
+- **Polling every ~5 seconds** with a cheap version/ETag check so an unchanged board costs almost nothing. No manual refresh needed.
+- SSE/WebSockets only if polling proves insufficient.
+
+### Ranking rules (isolated in `worker/services/ranking.ts`)
+- Sort by total score descending.
+- Tie-breaker 1: number of **activity wins**. A win means having the highest activity total in that activity; teams tied for highest each share the win.
+- If still tied: **standard competition ranking** (1, 2, 2, 4). Tied teams are marked "Tied".
+- The tie-break logic is a separate, swappable function with its own tests. Never pick an arbitrary winner.
+
+### Optional animation
+Smoothly animate position changes and briefly highlight updated scores. Not distracting; must respect `prefers-reduced-motion`.
+
+The public scoreboard is **on by default** with an admin toggle. Judges always see the leaderboard.
+
+---
+
+## 13. Database Schema (D1 / SQLite)
+
+Use migrations. Suggested tables:
+
+**users** — id, username (unique), password_hash, role (`ADMIN`|`JUDGE`), display_name, created_at, updated_at.
+
+**sessions** — id, user_id, token_hash (SHA-256 of the random token), expires_at, created_at.
+
+**login_attempts** — id, key (username+IP), attempted_at, success.
+
+**teams** — id, team_code (unique), display_name, registration_type (`SINGLE`|`COMBINED`), family_surname, combined_family_surname, participant_count, status (`ACTIVE`|`DELETED`), created_at, updated_at.
+
+**participants** — id, team_id, name, created_at, updated_at.
+
+**activities** — id, name, description, display_order, active, created_at, updated_at.
+
+**scores** — id, team_id, activity_id, judge_id, score, previous_score, last_updated_by, created_at, updated_at. **UNIQUE(team_id, activity_id, judge_id).**
+
+**event_settings** — registration_status, event_status, maximum_teams (≤ 6), minimum_score, maximum_score, scoreboard_public, judges_can_edit, scoring_locked, participant_names_enabled, team_code_counter.
+
+**audit_log** — id, user_id, action, entity_type, entity_id, old_value, new_value, is_admin_change, created_at.
+
+---
+
+## 14. Authentication and Security
+
+- Accounts: admin, judge1, judge2, judge3.
+- Passwords hashed with **PBKDF2 via Web Crypto** (with per-user salt and a high iteration count). Never plain text. Never exposed to the frontend.
+- Sessions: random tokens; only a hash is stored server-side. Delivered in an **HttpOnly, Secure, SameSite=Strict** cookie with an expiry.
+- **CSRF:** SameSite cookies plus an `Origin` header check plus a required custom header on state-changing requests.
+- **Login rate limiting** using `login_attempts`, with a generic error message that does not reveal whether the username exists.
+- Protect `/admin/*`, `/judge/*` and the matching `/api` routes server-side.
+- Zod validation on all API input, parameterized SQL, output escaping, no secrets in Git, no DB details in API responses, and no trust in client-provided role/user IDs.
+- Security headers (CSP, `X-Content-Type-Options`, `Referrer-Policy`, etc.).
+
+### Initial accounts
+No production passwords in source code. Provide a setup script (`npm run setup:users`) that reads passwords from environment variables or a prompt and creates admin, judge1, judge2 and judge3, locally and in production. Document how to change passwords before the live event.
+
+---
+
+## 15. API (adjust as appropriate)
+
+```
+POST   /api/auth/login
+POST   /api/auth/logout
+GET    /api/auth/me
+
+GET    /api/registration/status        (public: spaces remaining, open/closed)
+POST   /api/registration               (public, rate limited)
+
+GET    /api/teams
+POST   /api/teams                      (admin)
+GET    /api/teams/:id
+PUT    /api/teams/:id                  (admin)
+DELETE /api/teams/:id                  (admin, soft delete)
+
+GET    /api/activities
+POST   /api/activities                 (admin)
+PUT    /api/activities/:id             (admin)
+DELETE /api/activities/:id             (admin)
+
+GET    /api/scores                     (judge: own scores; admin: all)
+POST   /api/scores                     (judge; judge_id from session)
+PUT    /api/scores/:id                 (judge: own only; admin: correction)
+
+GET    /api/leaderboard               (public if enabled)
+GET    /api/settings
+PUT    /api/settings                   (admin)
+
+GET    /api/admin/overview
+GET    /api/admin/audit
+GET    /api/admin/export/results.csv
+GET    /api/admin/export/event.json
+```
+
+---
+
+## 16. Validation and Error Handling
+
+Frontend validation gives immediate feedback; backend validation is the real enforcement. Examples: family name not empty; participant count a valid number; maximum teams cannot exceed 6; score within configured range; activity must exist; judge must be authenticated; judge can modify only their own scores.
+
+User-friendly messages, e.g.: "Registration is currently closed." · "All 6 team places have already been filled." · "Please enter a valid family name." · "Please enter a valid participant count." · "You are not authorised to perform this action." · "Your score must be between 0 and 10." · "This activity does not exist." · "Unable to save your score. Please try again."
+
+Never show raw database errors to users. Log technical errors for debugging.
+
+---
+
+## 17. Exports and Data Safety
+
+- **CSV results export:** team, activity, Judge 1/2/3 scores, activity total, overall total, position.
+- **Export Event Data:** full JSON export of teams, participants, activities, scores, settings and audit log, so the event does not depend on one browser or computer.
+- Printable final results view if practical.
+
+---
+
+## 18. Responsive Design, UI and Accessibility
+
+- Works on iPhone/Android, iPad/Android tablet, laptop/desktop and TV/projector. The judge UI prioritizes large touch targets.
+- Friendly church/family-event style: cards, clear headings, status badges, large buttons, good spacing. Prioritize reliability and usability over animation. Branding can be added later.
+- Accessibility: semantic HTML, labelled form fields, keyboard navigation, visible focus states, good contrast, accessible error messages, ARIA only where needed, and never colour alone to convey score/status.
+
+---
+
+## 19. Seed Data (development only)
+
+Script populating: 6 sample teams, 5 activities, 3 judges, 1 admin, sample scores. It must **refuse to run against production** (check environment and require an explicit local flag).
+
+---
+
+## 20. Tests
+
+Cover at least:
+
+- **Registration:** first team registers; six register; seventh rejected (including a concurrent-request case); closed registration rejects; invalid participant count rejected.
+- **Scoring:** valid score accepted; below minimum and above maximum rejected; judge can submit own score; judge cannot modify another judge's score (including a spoofed `judge_id`); duplicate submissions update rather than duplicate; scores rejected when not LIVE or when locked.
+- **Leaderboard:** totals calculated correctly; sorted correctly; missing scores handled; ties handled per the tie-break rules (competition ranking).
+- **Authentication:** unauthenticated users cannot reach admin or judge endpoints; judge cannot access admin endpoints; admin can; login rate limiting works.
+
+---
+
+## 21. Project Structure
+
+```
+family-fun-day/
+├── src/            # React app: components, pages, layouts, hooks, services, types, utils, styles
+├── worker/         # routes, services (incl. ranking.ts), middleware, auth, db
+├── migrations/
+├── scripts/        # setup:users, seed
+├── tests/
+├── public/
+├── package.json
+├── vite.config.ts
+├── wrangler.jsonc
+├── tsconfig.json
+├── README.md
+└── .gitignore
+```
+
+Adjust if the current Cloudflare tooling requires it. Keep frontend and backend responsibilities clearly separated. TypeScript strict mode throughout.
+
+---
+
+## 22. Cloudflare Configuration, README and Deployment
+
+The README must let someone with **no Cloudflare experience** get from a fresh Ubuntu Studio install to a working deployment:
+
+**Local:** `git clone`, `cd family-fun-day`, `npm install`, `npm run db:migrate`, `npm run db:seed`, `npm run dev`, plus how local D1 works, running tests, and any extra dependencies.
+
+**Cloudflare:** create an account; install and authenticate Wrangler; create the D1 database; configure the binding; apply migrations to production; set secrets (never in Git); build; deploy; create the initial admin/judge accounts; view logs; verify production login, registration, scoring and the scoreboard.
+
+Also document: changing passwords before the event, and the event-day checklist.
+
+---
+
+## 23. Production Event Workflow (must be supported)
+
+**Before the event:** Admin logs in, creates activities, opens registration; families register (max six); admin verifies registrations and closes registration.
+
+**At the event:** Admin sets status to LIVE. Judges log in on phones/tablets, select the current activity and enter scores. Scores are saved and the scoreboard updates.
+
+**During:** Admin monitors progress and missing scores. Judges correct their own scores if allowed. Admin corrects errors (audited).
+
+**At the end:** Admin sets FINISHED; scoring locks; final standings display; admin exports results.
+
+---
+
+## 24. Business Rules (implement centrally, in one service module)
+
+1. Maximum **6** teams.
+2. Every team has one unique, never-reused team ID.
+3. A team is either Single Family or Combined Family.
+4. A judge can only modify their own scores.
+5. There are exactly three judges.
+6. One score per judge per team per activity.
+7. The leaderboard is calculated from stored scores.
+8. The leaderboard sorts by total score, with the configured tie-breaks.
+9. Final results can be locked.
+10. Administrative changes are auditable.
+
+---
+
+## 25. Build Process
+
+Build in stages and keep the app runnable after each one. At the end of each stage, summarise what was built, how to run/test it, and any decisions made.
+
+1. Project setup (Vite + React + TS + Tailwind + Worker + Hono, local dev working)
+2. Database schema and migrations
+3. Authentication (sessions, hashing, CSRF, rate limiting, setup script)
+4. Registration (with atomic team cap)
+5. Admin team management
+6. Activities
+7. Judge dashboard
+8. Scoring (upsert, validation, audit)
+9. Leaderboard and ranking service
+10. Live scoreboard (polling)
+11. Exports
+12. Tests
+13. Security review
+14. Responsive/mobile and accessibility testing
+15. Cloudflare deployment and README
+
+---
+
+## 26. First Task
+
+Do **not** generate the whole application at once. First:
+
+1. Inspect the current repository and determine whether a project already exists. Do not overwrite existing files unnecessarily.
+2. Confirm the Node.js and npm versions (Node v20+ required).
+3. Confirm the architecture above (or explain any technical objection).
+4. Present the final SQL schema for review.
+5. Note anything that genuinely needs clarification.
+
+Then begin **Stage 1** only, and stop for confirmation at the end of each stage.
+
+---
+
+## 27. Definition of Done
+
+- [ ] Six teams can register; a seventh is rejected (also under concurrent requests)
+- [ ] Single-family and combined-family registration work; participant counts stored
+- [ ] Admin can manage teams and activities
+- [ ] Three judges log in independently and enter scores
+- [ ] Judges cannot modify each other's scores; scores are validated; duplicates prevented
+- [ ] Admin can correct scores; all changes are auditable
+- [ ] Leaderboard calculates correctly, shows 1st–6th, and handles ties
+- [ ] Incomplete scoring is identifiable
+- [ ] Scoreboard works on a large screen and updates without manual refresh
+- [ ] Registration can be opened/closed; event can be set LIVE/FINISHED; scoring can be locked
+- [ ] Results and event data can be exported
+- [ ] Authentication is secure and backend authorization is enforced
+- [ ] Application is responsive and accessible
+- [ ] Tests cover core functionality
+- [ ] Local development and Cloudflare deployment are fully documented
+- [ ] No production secrets are committed
+- [ ] README contains complete setup instructions
+
+The goal is a polished, reliable application a church can use on event day with six teams, three judges, multiple activities, live scoring and a public leaderboard.
