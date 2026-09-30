@@ -6,7 +6,7 @@ This project uses one Cloudflare Worker for API + frontend static assets, with C
 
 ## Current Stage Summary
 
-Completed through Stage 15:
+Completed through Stage 15 and post-stage UX/ops updates:
 - Project scaffold, D1 schema and migrations
 - Auth, sessions, CSRF checks, login rate limiting
 - Public registration, admin team/activity management
@@ -16,6 +16,11 @@ Completed through Stage 15:
 - Unit test coverage for core business-rule services and middleware
 - Security hardening pass and accessibility/responsive improvements
 - Full deployment and operations documentation
+- Direct URL login for judge/admin pages (`/judge`, `/admin`)
+- Team colour captured at registration and rendered across admin/judge/leaderboard views
+- Judge scoring UX redesigned into a 3-step guided flow with activity chips
+- Judge can reset scores for the selected activity from the UI
+- Admin and judge sections now use smoother accordion-style expand/collapse interactions
 
 ## Important Decision Note
 
@@ -90,6 +95,22 @@ If Node is missing, install with nvm:
 - `npm test`
 - `npm run build`
 - `npm run deploy`
+
+## Current Behavior Notes
+
+- Role access:
+   - Admin sessions are blocked from judge API actions.
+   - Judge sessions are blocked from admin API actions.
+- Judge scoring is allowed only when:
+   - `event_status = LIVE`
+   - `scoring_locked = false`
+   - `judges_can_edit = true`
+- Judge score submission requires an explicit score for every visible team in the selected activity.
+- Deleted teams are hidden from active admin team listings.
+- Team colour usage:
+   - Captured at family registration.
+   - Stored in `teams.colour`.
+   - Used as background tint in admin team cards, judge team cards, and leaderboard rows.
 
 ## Local D1 Notes
 
@@ -174,8 +195,9 @@ During event:
 
 1. Set event status to LIVE
 2. Judges submit scores activity-by-activity
-3. Monitor incomplete activity badges and score matrix
-4. Correct errors from admin panel when needed
+3. Judges can reset the currently selected activity if they need to re-enter scores
+4. Monitor incomplete activity badges and score matrix
+5. Correct errors from admin panel when needed
 
 After event:
 
@@ -204,6 +226,7 @@ Current automated suite validates:
 - score validation and edit-lock rules
 - role-guard middleware
 - ranking/tie-break behavior
+- CSRF origin guard behavior
 
 Run all tests with:
 
