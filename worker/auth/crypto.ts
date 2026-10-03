@@ -1,4 +1,4 @@
-const PBKDF2_ITERATIONS = 210_000;
+const PBKDF2_ITERATIONS = 100_000;
 const PBKDF2_HASH = 'SHA-256';
 const PBKDF2_KEY_LEN = 32;
 
@@ -36,17 +36,21 @@ export async function hashPassword(password: string, saltHex: string): Promise<s
 }
 
 export async function verifyPassword(password: string, saltHex: string, expectedHashHex: string): Promise<boolean> {
-  const actual = await hashPassword(password, saltHex);
-  if (actual.length !== expectedHashHex.length) {
+  try {
+    const actual = await hashPassword(password, saltHex);
+    if (actual.length !== expectedHashHex.length) {
+      return false;
+    }
+
+    let diff = 0;
+    for (let i = 0; i < actual.length; i += 1) {
+      diff |= actual.charCodeAt(i) ^ expectedHashHex.charCodeAt(i);
+    }
+
+    return diff === 0;
+  } catch {
     return false;
   }
-
-  let diff = 0;
-  for (let i = 0; i < actual.length; i += 1) {
-    diff |= actual.charCodeAt(i) ^ expectedHashHex.charCodeAt(i);
-  }
-
-  return diff === 0;
 }
 
 export async function sha256Hex(value: string): Promise<string> {
