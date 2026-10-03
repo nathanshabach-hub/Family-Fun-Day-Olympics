@@ -1,7 +1,5 @@
 PRAGMA foreign_keys = OFF;
 
-BEGIN TRANSACTION;
-
 CREATE TABLE event_settings_new (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   registration_status TEXT NOT NULL CHECK (registration_status IN ('OPEN', 'CLOSED')),
@@ -55,7 +53,5 @@ FROM event_settings;
 
 DROP TABLE event_settings;
 ALTER TABLE event_settings_new RENAME TO event_settings;
-
-COMMIT;
 
 PRAGMA foreign_keys = ON;
